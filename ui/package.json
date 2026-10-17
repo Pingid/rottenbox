@@ -1,0 +1,32 @@
+{
+  "name": "@rottenbox/ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun-tasks --args DISABLE_PROXY_INJECT=true dev:client ::: dev:chrome",
+    "dev:client": "vite",
+    "dev:chrome": "bun run ./dev/index.ts",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/query-persist-client-core": "^5.104.4",
+    "@tanstack/solid-query": "^5.104.4",
+    "idb-keyval": "^6.3.0",
+    "playwright": "^1.64.1",
+    "solid-js": "^1.9.15",
+    "tailwindcss": "^4.3.3",
+    "vite-plugin-singlefile": "^2.3.3"
+  },
+  "devDependencies": {
+    "@types/http-proxy": "^1.17.17",
+    "@types/node": "^24.13.3",
+    "bun-tasks": "^0.1.4",
+    "http-proxy": "^1.18.1",
+    "typescript": "~7.0.2",
+    "vite": "^8.3.0",
+    "vite-plugin-solid": "^2.11.14"
+  }
+}

@@ -1,0 +1,65 @@
+@import 'tailwindcss';
+
+/* `dark:` follows our own `.dark` root (inside the shadow tree), not the OS or the host page */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* px-based scale so host-page `html { font-size }` can't resize the panel */
+@theme {
+  --spacing: 4px;
+  --text-xs: 11px;
+  --text-xs--line-height: 16px;
+  --text-sm: 12px;
+  --text-sm--line-height: 18px;
+}
+
+/* semantic colours, switched per theme below: `bg-surface`, `text-muted`, `ring-line`, … */
+@theme inline {
+  --color-surface: var(--rb-surface);
+  --color-raised: var(--rb-raised);
+  --color-hover: var(--rb-hover);
+  --color-fg: var(--rb-fg);
+  --color-muted: var(--rb-muted);
+  --color-subtle: var(--rb-subtle);
+  --color-line: var(--rb-line);
+  --color-line-strong: var(--rb-line-strong);
+  --color-accent: var(--rb-accent);
+  --color-accent-soft: var(--rb-accent-soft);
+  --color-ok: var(--rb-ok);
+  --color-danger: var(--rb-danger);
+}
+
+.theme {
+  color-scheme: light;
+  --rb-surface: var(--color-white);
+  --rb-raised: var(--color-zinc-100);
+  --rb-hover: --alpha(var(--color-zinc-950) / 6%);
+  --rb-fg: var(--color-zinc-900);
+  --rb-muted: var(--color-zinc-500);
+  --rb-subtle: var(--color-zinc-400);
+  --rb-line: --alpha(var(--color-zinc-950) / 10%);
+  --rb-line-strong: --alpha(var(--color-zinc-950) / 25%);
+  --rb-accent: var(--color-sky-600);
+  --rb-accent-soft: --alpha(var(--color-sky-500) / 12%);
+  --rb-ok: var(--color-emerald-600);
+  --rb-danger: var(--color-rose-600);
+}
+
+.theme.dark {
+  color-scheme: dark;
+  --rb-surface: var(--color-zinc-900);
+  --rb-raised: --alpha(var(--color-white) / 5%);
+  --rb-hover: --alpha(var(--color-white) / 8%);
+  --rb-fg: var(--color-zinc-100);
+  --rb-muted: var(--color-zinc-400);
+  --rb-subtle: var(--color-zinc-600);
+  --rb-line: --alpha(var(--color-white) / 10%);
+  --rb-line-strong: --alpha(var(--color-white) / 30%);
+  --rb-accent: var(--color-sky-400);
+  --rb-accent-soft: --alpha(var(--color-sky-400) / 12%);
+  --rb-ok: var(--color-emerald-400);
+  --rb-danger: var(--color-rose-400);
+}
+
+:host {
+  all: initial;
+}

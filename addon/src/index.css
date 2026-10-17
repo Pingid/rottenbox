@@ -1,0 +1,4 @@
+@import 'tailwindcss';
+@import '@rottenbox/ui/index.css';
+
+@source "../../ui/src";

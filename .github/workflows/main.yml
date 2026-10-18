@@ -1,6 +1,9 @@
 name: Main
 
-on: push
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
 
 permissions:
   contents: write
@@ -10,17 +13,44 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          # manifest version falls back to `git describe` on branch builds
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.3
-  
+
       - name: install
-        run: bun install
+        run: bun install --frozen-lockfile
 
       - name: build
-        run: bun run --workspaces --parallel build
+        run: bun run build
 
-      - name: Restore and Normalize Private Key
+      - name: lint firefox
+        run: bun run --cwd addon lint:firefox
+
+      - name: upload builds
+        uses: actions/upload-artifact@v4
+        with:
+          name: rottenbox-${{ github.sha }}
+          path: addon/dist/
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
+      - name: install
+        run: bun install --frozen-lockfile
+
+      - name: restore chrome key
         env:
           CRX_KEY_B64: ${{ secrets.CRX_PRIVATE_KEY }}
         run: |
@@ -29,15 +59,19 @@ jobs:
           openssl rsa -in key.pem -check -noout
 
       - name: collect
-        if: github.ref_type == 'tag'
         env:
           KEY: ./key.pem
-          VERSION: ${{ github.ref_name }}
         run: sh ./bin/build.sh
 
-      - name: Release
+      - name: sign firefox
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+          REPO: ${{ github.repository }}
+        run: sh ./bin/sign-firefox.sh
+
+      - name: release
         uses: softprops/action-gh-release@v3
-        if: github.ref_type == 'tag'
         with:
           files: ./release/*
           generate_release_notes: true

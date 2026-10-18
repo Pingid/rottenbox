@@ -9,14 +9,35 @@ const icons = (name: string) => ({
   128: `icons/${name}-128.png`,
 })
 
-const tag = spawnSync('git', ['describe', '--tags', '--abbrev=0'], { encoding: 'utf-8' }).stdout.toString().trim()
+// CI passes the release tag as VERSION; locally fall back to the latest git tag
+const tag =
+  process.env['VERSION'] ??
+  spawnSync('git', ['describe', '--tags', '--abbrev=0'], { encoding: 'utf-8' }).stdout.toString().trim()
 const [version] = /\d{1,}\.\d{1,}\.\d{1,}/.exec(tag) ?? [pkg.version]
-export const browser = (process.env['BROWSER'] as any) ?? 'chrome'
+
+export type Browser = 'chrome' | 'firefox'
+export const browser: Browser = process.env['BROWSER'] === 'firefox' ? 'firefox' : 'chrome'
+
+/** Firefox add-on id; tied to the AMO signing account, so it must never change once published. */
+export const GECKO_ID = 'rottenbox@pingid.github.io'
 
 export default defineManifest(() => {
+  // Firefox has no MV3 service workers: the same module runs as an event page instead
   const firefox = {
     background: {
       scripts: ['src/background/service-worker.ts'],
+      type: 'module' as const,
+    },
+    browser_specific_settings: {
+      gecko: {
+        id: GECKO_ID,
+        // 127+ grants MV3 host_permissions at install; `fromFetch` needs AbortSignal.timeout
+        strict_min_version: '128.0',
+        // self-hosted updates: each release ships an updates.json pointing at its signed xpi
+        update_url: 'https://github.com/Pingid/rottenbox/releases/latest/download/updates.json',
+        // page titles are sent to Cinemeta / stream addons to look torrents up
+        data_collection_permissions: { required: ['websiteContent' as const] },
+      },
     },
   }
   return {

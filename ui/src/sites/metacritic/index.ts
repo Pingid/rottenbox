@@ -1,8 +1,8 @@
-import { LdJson, Page } from '../../lib'
+import { LdJson, Page, Ratings } from '../../lib'
 
 import type { ListItem, Media, SiteAdapter } from '../types'
 
-const MOUNT = 'data-torrenty'
+const MOUNT = 'data-rottenbox'
 
 /** `/movie/slug/`, `/tv/slug/` or `/tv/slug/season-2/`; games and music live elsewhere. */
 const MEDIA_PATH = /^\/(movie|tv)\/([^/]+)\/(?:season-(\d+)\/)?$/
@@ -16,6 +16,7 @@ type LdItem = {
   /** TVSeason only */
   seasonNumber?: number
   partOfSeries?: { name: string }
+  aggregateRating?: { ratingValue?: number; bestRating?: number; reviewCount?: number; url?: string }
 }
 
 const isItem = (x: unknown): x is LdItem => ['Movie', 'TVSeries', 'TVSeason'].includes((x as LdItem)?.['@type'])
@@ -35,15 +36,21 @@ const parseName = (alt: string) => {
   return { title: title.trim(), year, season: season ? Number(season) : undefined }
 }
 
+/** The ld+json item for this page, ignoring one left over from the previous page. */
+const pageItem = (doc: Document) => {
+  const item = LdJson.read(doc).find(isItem)
+  // navigation is client-side and the ld+json is swapped in after the url
+  // changes, so ignore an item still describing the previous page
+  return item && (!item.url || samePath(item.url)) ? item : null
+}
+
 export const metacritic: SiteAdapter = {
   id: 'metacritic',
   match: (url) => /(^|\.)metacritic\.com$/.test(url.hostname),
   fingerprint: (doc) => Page.names(doc).includes('metacritic'),
   getMedia: (doc) => {
-    const item = LdJson.read(doc).find(isItem)
-    // navigation is client-side and the ld+json is swapped in after the url
-    // changes, so ignore an item still describing the previous page
-    if (!item || (item.url && !samePath(item.url))) return null
+    const item = pageItem(doc)
+    if (!item) return null
     const year = item.dateCreated?.slice(0, 4)
     if (item['@type'] === 'Movie') return { title: item.name, year, type: 'movie', poster: item.image }
     if (item['@type'] === 'TVSeries') return { title: item.name, year, type: 'series', poster: item.image }
@@ -54,6 +61,20 @@ export const metacritic: SiteAdapter = {
       poster: item.image,
       season: item.seasonNumber,
     } satisfies Media
+  },
+  getRatings: (doc) => {
+    const r = pageItem(doc)?.aggregateRating
+    const rating =
+      r &&
+      Ratings.from({
+        id: 'metascore',
+        label: 'Metascore',
+        value: r.ratingValue,
+        max: r.bestRating ?? 100,
+        count: r.reviewCount,
+        url: r.url,
+      })
+    return rating ? [rating] : []
   },
   listItems: (doc) => {
     const items: ListItem[] = []

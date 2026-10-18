@@ -17,7 +17,12 @@ export default defineConfig({
       '@': `${path.resolve(import.meta.dirname, 'src')}`,
     },
   },
-  build: { outDir, emptyOutDir: true },
+  build: {
+    outDir,
+    emptyOutDir: true,
+    // opened by url from the background (host access prompt), so not reachable from the manifest
+    rolldownOptions: { input: { grant: 'src/grant/grant.html' } },
+  },
   plugins: [
     tailwindcss(),
     solid(),

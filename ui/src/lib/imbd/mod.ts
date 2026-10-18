@@ -2,7 +2,7 @@ import { queryOptions } from '@tanstack/solid-query'
 
 import { Req, Time } from '../util'
 
-import type { MetaCatalogResponse, MetaDetail, MetaResponse } from './types'
+import type { MetaCatalogResponse, MetaDetail, MetaResponse, MetaVideo } from './types'
 
 export * from './types'
 
@@ -48,3 +48,9 @@ export const queries = {
       gcTime: 30 * Time.day,
     }),
 }
+
+/** Specials (season 0) sort last. */
+const seasonKey = (s: number) => (s === 0 ? Infinity : s)
+
+export const sortVideos = (videos: MetaVideo[] = []) =>
+  [...videos].sort((a, b) => seasonKey(a.season) - seasonKey(b.season) || a.episode - b.episode)

@@ -1,4 +1,7 @@
-import type { JSX } from 'solid-js'
+import { createSignal, Show, type JSX } from 'solid-js'
+
+import { Req } from '../lib'
+import { Fetch, Query } from '../context'
 
 export const IconButton = (p: { title: string; active?: boolean; onClick: () => void; children: JSX.Element }) => (
   <button
@@ -39,9 +42,10 @@ export const CloseIcon = () => (
   </Svg>
 )
 
-export const DownloadIcon = () => (
+/** Stacked bars: the panel's own "compare" glyph. */
+export const BarsIcon = () => (
   <Svg>
-    <path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14" />
+    <path d="M4 7h10M4 12h16M4 17h7" />
   </Svg>
 )
 
@@ -68,3 +72,42 @@ export const CheckIcon = () => (
     <path d="M20 6 9 17l-5-5" />
   </Svg>
 )
+
+type Failed = { error: unknown; failureReason?: unknown }
+
+/**
+ * "Name: reason" for a failed request. When the extension lacks access to the
+ * host, offers to grant it, then retries everything that failed.
+ */
+export const Failure = (p: { name: string; query: Failed }) => {
+  const grant = Fetch.useGrant()
+  const [asking, setAsking] = createSignal(false)
+  const reason = () => p.query.error ?? p.query.failureReason
+  const ask = async (origin: string) => {
+    if (!grant) return
+    setAsking(true)
+    try {
+      if (await grant(origin)) await Query.client.refetchQueries({ predicate: (q) => q.state.status === 'error' })
+    } finally {
+      setAsking(false)
+    }
+  }
+  return (
+    <>
+      {p.name}: {Req.describe(reason())}
+      <Show when={grant && Req.grantOf(reason())}>
+        {(origin) => (
+          <button
+            type="button"
+            disabled={asking()}
+            title={`Let Rottenbox fetch from ${origin()}`}
+            onClick={() => ask(origin())}
+            class="ml-1.5 rounded px-1.5 text-accent hover:bg-accent-soft disabled:opacity-50"
+          >
+            {asking() ? 'Waiting…' : 'Grant access'}
+          </button>
+        )}
+      </Show>
+    </>
+  )
+}

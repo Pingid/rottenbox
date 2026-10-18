@@ -3,7 +3,7 @@
   "type": "module",
   "version": "1.0.0",
   "private": true,
-  "description": "Find torrent streams for movies and TV shows while browsing Rotten Tomatoes, Letterboxd and Metacritic.",
+  "description": "Compare ratings and jump to where a movie or show is streaming while browsing Rotten Tomatoes, Letterboxd and Metacritic. Extensible with Stremio addons and custom sources.",
   "scripts": {
     "dev": "vite",
     "dev:firefox": "BROWSER=firefox vite",

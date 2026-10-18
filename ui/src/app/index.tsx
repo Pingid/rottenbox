@@ -9,13 +9,18 @@ import { detectSite } from '../sites'
 
 import twstyles from '../index.css?inline'
 
-export const UI = (p: { styles: CSSStyleSheet; storage: Persist.AsyncStorage; fetcher: Fetch.Requester }) => {
+export const UI = (p: {
+  styles: CSSStyleSheet
+  storage: Persist.AsyncStorage
+  fetcher: Fetch.Requester
+  grant?: Fetch.Grant
+}) => {
   const site = createMemo(() => detectSite())
 
   return (
     <Show when={site()}>
       {(site) => (
-        <Fetch.Provider value={p.fetcher}>
+        <Fetch.Provider value={{ requester: p.fetcher, grant: p.grant }}>
           <Persist.Provider value={p.storage}>
             <Query.Provider client={Query.client}>
               <Theme.Provider>
@@ -32,8 +37,13 @@ export const UI = (p: { styles: CSSStyleSheet; storage: Persist.AsyncStorage; fe
 }
 
 /** Mount the UI on supported pages; returns a function that removes it again. */
-export const renderInline = (opts?: { storage?: Persist.AsyncStorage; styles?: string; fetcher?: Fetch.Requester }) => {
-  const { storage = Persist.idb('storage'), styles = twstyles, fetcher = Fetch.fromFetch() } = opts ?? {}
+export const renderInline = (opts?: {
+  storage?: Persist.AsyncStorage
+  styles?: string
+  fetcher?: Fetch.Requester
+  grant?: Fetch.Grant
+}) => {
+  const { storage = Persist.idb('storage'), styles = twstyles, fetcher = Fetch.fromFetch(), grant } = opts ?? {}
 
   // leave unsupported pages untouched: no root element, no hoisted styles
   if (!detectSite()) return () => {}
@@ -50,7 +60,8 @@ export const renderInline = (opts?: { storage?: Persist.AsyncStorage; styles?: s
   let dispose = () => {}
   const restored = Query.persistant(storage)
   restored.then(() => {
-    if (!disposed) dispose = render(() => <UI storage={storage} styles={sheet} fetcher={fetcher} />, root.shadow)
+    if (!disposed)
+      dispose = render(() => <UI storage={storage} styles={sheet} fetcher={fetcher} grant={grant} />, root.shadow)
   })
 
   return () => {

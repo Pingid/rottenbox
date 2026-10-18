@@ -1,97 +1,62 @@
 import { createMemo, createSignal, For, Match, onCleanup, Show, Switch } from 'solid-js'
 
-import { Clipboard, IMDB, Req, Stremio } from '../lib'
+import { Clipboard, Manifest, Req, Stremio } from '../lib'
 import type { Media } from '../sites'
 
-import { EpisodePicker, sortVideos } from './episodes'
-import { CheckIcon, CopyIcon, IconButton, inputClass, Message } from './ui'
-import { Config, Query, Fetch } from '../context'
+import { EpisodePicker } from './episodes'
+import { MatchPicker } from './overview'
+import { CheckIcon, CopyIcon, IconButton, Failure, Message } from './ui'
+import { Config, Query, Fetch, type Resolve } from '../context'
 
-export const Torrents = (p: { media: Media }) => {
+export const Streams = (p: { media: Media; resolved: Resolve.Resolved }) => {
   const { config, setConfig } = Config.use()
   const r = Fetch.use()
+  const res = p.resolved
 
-  // Resolve the title to a Cinemeta entry: by IMDb id when the site gives one,
-  // else (or if the id is unknown) by title search.
-  const byId = Query.use(() => ({
-    ...IMDB.queries.meta(r, p.media.type, p.media.imdb ?? ''),
-    enabled: !!p.media.imdb,
+  const providers = () =>
+    config.sources.filter((x): x is Manifest.StremioSource => x.kind === 'stremio' && x.enabled && !!x.url.trim())
+  // skip addons whose manifest says they don't serve this type / id; if the manifest
+  // can't be read, ask for streams anyway and let that request report the problem
+  const manifests = Query.useAll(() => ({
+    queries: providers().map((x) => Stremio.queries.manifest(r, x.url)),
   }))
-  const search = Query.use(() => ({
-    ...IMDB.queries.search(r, { query: p.media.title, year: p.media.year, type: p.media.type }),
-    enabled: !p.media.imdb || byId.isError,
-  }))
-  const metas = () => (byId.data ? [byId.data] : (search.data ?? []))
-
-  const [metaId, setMetaId] = createSignal<string>()
-  const meta = () => {
-    const list = metas()
-    return list.find((m) => m.id === metaId()) ?? IMDB.pickBest(list, p.media.year)
+  const serves = (i: number) => {
+    const m = manifests[i]
+    if (m?.data) return Stremio.serves(m.data, 'stream', p.media.type, res.videoId() ?? '')
+    return !!m?.isError
   }
-
-  // series: load the episode list and track which one is picked
-  const isSeries = () => p.media.type === 'series'
-  const details = Query.use(() => ({
-    ...IMDB.queries.meta(r, 'series', meta()?.id ?? ''),
-    enabled: isSeries() && !!meta(),
-  }))
-  const videos = createMemo(() => sortVideos(details.data?.videos))
-  const [pick, setPick] = createSignal({
-    season: p.media.season ?? 1,
-    episode: p.media.episode,
-  })
-  /** Picked episode, falling back to the season's first, then the show's first. */
-  const video = createMemo(() => {
-    const { season, episode } = pick()
-    const v = videos()
-    return (
-      v.find((x) => x.season === season && x.episode === episode) ??
-      v.find((x) => x.season === season) ??
-      v.find((x) => x.season > 0) ??
-      v[0]
-    )
-  })
-
-  const streamId = () => (isSeries() ? video()?.id : meta()?.id)
-  const providers = () => config.providers.filter((x) => x.enabled && x.url.trim())
   const results = Query.useAll(() => ({
-    queries: providers().map((x) => ({
-      ...Stremio.queries.streams(r, x.url, p.media.type, streamId() ?? ''),
-      enabled: !!streamId(),
+    queries: providers().map((x, i) => ({
+      ...Stremio.queries.streams(r, x.url, p.media.type, res.videoId() ?? ''),
+      enabled: !!res.videoId() && serves(i),
     })),
   }))
+  const active = () => providers().flatMap((x, i) => (serves(i) ? [{ x, q: results[i] }] : []))
   // Rows show as each addon answers; a slow or failing one doesn't hold back the rest.
   const streams = createMemo(() =>
-    Stremio.merge(providers().map((x, i) => ({ provider: x.label || x.url, streams: results[i]?.data ?? [] }))),
+    Stremio.merge(active().map(({ x, q }) => ({ provider: x.label || x.url, streams: q?.data ?? [] }))),
   )
-  const streamsError = () => results.length > 0 && results.every((r) => r.isError)
-  const streamsLoading = () => streams().length === 0 && results.some((r) => r.isLoading)
+  const pending = () => manifests.some((m) => m.isLoading)
+  const streamsError = () => active().length > 0 && active().every(({ q }) => q?.isError)
+  const streamsLoading = () => streams().length === 0 && (pending() || active().some(({ q }) => q?.isLoading))
 
   // Retry feedback: which query is backing off, and which failed for good.
   const named = () => [
-    { name: 'Cinemeta', q: byId },
-    { name: 'Cinemeta', q: search },
-    { name: 'Cinemeta', q: details },
-    ...providers().map((x, i) => ({ name: x.label || Stremio.baseUrl(x.url), q: results[i] })),
+    ...res.queries(),
+    ...active().map(({ x, q }) => ({ name: x.label || Stremio.baseUrl(x.url), q, fallback: false })),
   ]
   const retrying = () => named().find((x) => x.q?.isFetching && x.q.failureCount > 0)
-  // a failed id lookup falls back to search, so only search's own failure counts
-  const failed = () => named().filter((x) => x.q !== byId && x.q?.isError)
+  const failed = () => named().filter((x) => !x.fallback && x.q?.isError)
   const retryFailed = () => failed().forEach((x) => x.q.refetch())
 
-  /** Template values for a torrent row's actions. */
+  /** Template values for a stream row's actions. */
   const vars = (s: Stremio.ParsedStream): Config.Vars => ({
+    ...res.vars(),
     magnet: s.magnet,
     hash: s.hash,
     name: s.filename,
-    title: p.media.title,
-    year: p.media.year,
-    type: p.media.type,
-    imdb: meta()?.id,
-    id: streamId(),
-    season: video()?.season.toString(),
-    episode: video()?.episode.toString(),
     fileIdx: s.fileIdx?.toString(),
+    url: s.url,
   })
 
   const groups = createMemo(() => [...new Set(streams().map((s) => s.group))])
@@ -101,26 +66,18 @@ export const Torrents = (p: { media: Media }) => {
 
   return (
     <div class="flex min-h-0 flex-col">
-      <Show when={metas().length > 1}>
+      <Show when={res.metas().length > 1}>
         <div class="border-b border-line px-3 py-2">
-          <select class={inputClass} value={meta()?.id} onChange={(e) => setMetaId(e.currentTarget.value)}>
-            <For each={metas()}>
-              {(m) => (
-                <option value={m.id}>
-                  {m.name} ({m.releaseInfo ?? m.year ?? '?'})
-                </option>
-              )}
-            </For>
-          </select>
+          <MatchPicker resolved={res} />
         </div>
       </Show>
 
-      <Show when={isSeries() && video()}>
+      <Show when={res.isSeries() && res.video()}>
         {(v) => (
           <EpisodePicker
-            videos={videos()}
+            videos={res.videos()}
             current={v()}
-            onPick={(x) => setPick({ season: x.season, episode: x.episode })}
+            onPick={(x) => res.setPick({ season: x.season, episode: x.episode })}
           />
         )}
       </Show>
@@ -144,15 +101,15 @@ export const Torrents = (p: { media: Media }) => {
 
       <Switch>
         <Match when={providers().length === 0}>
-          <Message>No torrent providers enabled. Add one in settings.</Message>
+          <Message>No stream sources enabled. Add a Stremio addon in settings.</Message>
         </Match>
-        <Match when={search.isError || details.isError || streamsError()}>
+        <Match when={res.error() || streamsError()}>
           <Message>
-            Couldn't load torrents.
+            Couldn't load streams.
             <For each={failed()}>
               {(x) => (
                 <span class="mt-1 block text-subtle">
-                  {x.name}: {Req.describe(x.q.error)}
+                  <Failure name={x.name} query={x.q} />
                 </span>
               )}
             </For>
@@ -161,7 +118,7 @@ export const Torrents = (p: { media: Media }) => {
             </button>
           </Message>
         </Match>
-        <Match when={byId.isLoading || search.isLoading || details.isLoading || streamsLoading()}>
+        <Match when={res.loading() || streamsLoading()}>
           <Message>
             Searching…
             <Show when={retrying()}>
@@ -173,14 +130,17 @@ export const Torrents = (p: { media: Media }) => {
             </Show>
           </Message>
         </Match>
-        <Match when={!meta()}>
+        <Match when={!res.meta()}>
           <Message>No match found.</Message>
         </Match>
-        <Match when={isSeries() && !video()}>
+        <Match when={res.isSeries() && !res.video()}>
           <Message>No episodes found.</Message>
         </Match>
+        <Match when={active().length === 0}>
+          <Message>None of the enabled addons serve this title.</Message>
+        </Match>
         <Match when={visible().length === 0}>
-          <Message>No torrents found.</Message>
+          <Message>No streams found.</Message>
         </Match>
         <Match when={true}>
           {/* some providers answered; say which didn't rather than silently showing fewer rows */}
@@ -188,7 +148,7 @@ export const Torrents = (p: { media: Media }) => {
             {(x) => (
               <div class="flex shrink-0 items-center gap-2 border-b border-line px-3 py-1 text-subtle">
                 <span class="min-w-0 flex-1 truncate">
-                  {x().name}: {Req.describe(x().q.failureReason)}
+                  <Failure name={x().name} query={x().q} />
                   {x().q.isFetching ? `, retrying (${x().q.failureCount}/${Req.RETRIES})` : ''}
                 </span>
                 <Show when={!x().q.isFetching}>
@@ -214,16 +174,20 @@ export const Torrents = (p: { media: Media }) => {
                         </Show>
                       </div>
                       <div class="flex items-center shrink-0">
-                        <For each={config.actions}>{(a) => <ActionButton action={a} vars={() => vars(s)} />}</For>
+                        {/* actions needing a value this stream lacks (`{magnet}` on an http stream) are left out */}
+                        <For each={config.actions.filter((a) => !Config.missing(a.url, vars(s)))}>
+                          {(a) => <ActionButton action={a} vars={() => vars(s)} />}
+                        </For>
                       </div>
                     </div>
                     <span class="-my-1 shrink-0">
-                      <CopyMagnet magnet={s.magnet} />
+                      <CopyLink text={s.magnet ?? s.url ?? ''} what={s.magnet ? 'magnet link' : 'link'} />
                     </span>
                   </div>
                   <div class="mt-0.5 truncate text-muted" title={s.filename}>
                     {s.filename}
                     <Show when={s.source}> · {s.source}</Show>
+                    <Show when={s.kind !== 'torrent'}> · {s.kind}</Show>
                     <Show when={providers().length > 1}> · {s.provider}</Show>
                   </div>
                 </li>
@@ -236,21 +200,21 @@ export const Torrents = (p: { media: Media }) => {
   )
 }
 
-/** Copies the magnet uri, showing a check for a moment after. */
-const CopyMagnet = (p: { magnet: string }) => {
+/** Copies the stream's magnet uri or url, showing a check for a moment after. */
+const CopyLink = (p: { text: string; what: string }) => {
   const [copied, setCopied] = createSignal(false)
   let timer: ReturnType<typeof setTimeout> | undefined
   onCleanup(() => clearTimeout(timer))
 
   const copy = async () => {
-    if (!(await Clipboard.copy(p.magnet))) return
+    if (!(await Clipboard.copy(p.text))) return
     setCopied(true)
     clearTimeout(timer)
     timer = setTimeout(() => setCopied(false), 1500)
   }
 
   return (
-    <IconButton title={copied() ? 'Copied' : 'Copy magnet link'} active={copied()} onClick={copy}>
+    <IconButton title={copied() ? 'Copied' : `Copy ${p.what}`} active={copied()} onClick={copy}>
       <Show when={copied()} fallback={<CopyIcon />}>
         <CheckIcon />
       </Show>
@@ -263,7 +227,7 @@ const ICON = { idle: '', pending: '… ', ok: '✓ ', error: '✕ ' }
 
 const actionClass = 'rounded px-1.5 hover:bg-accent-soft disabled:opacity-50'
 
-/** One configured action on a torrent row: a link to open, or a request to send. */
+/** One configured action on a stream row: a link to open, or a request to send. */
 const ActionButton = (p: { action: Config.Action; vars: () => Config.Vars }) => (
   <Show when={!Config.isLink(p.action)} fallback={<LinkAction action={p.action} vars={p.vars} />}>
     <RequestAction action={p.action} vars={p.vars} />

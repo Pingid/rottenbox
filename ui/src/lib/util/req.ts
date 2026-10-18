@@ -1,6 +1,9 @@
 type ReqInit = Pick<RequestInit, 'body' | 'headers' | 'method'>
 
-export type FetchResult<T> = { ok: true; data: T } | { ok: false; timeout?: boolean; error: string; status: number }
+export type FetchResult<T> =
+  | { ok: true; data: T }
+  /** `grant`: the origin the fetcher has no access to yet (extension host permissions) */
+  | { ok: false; timeout?: boolean; grant?: string; error: string; status: number }
 
 export type Requester = <T>(kind: 'text' | 'json', input: string, init?: ReqInit) => Promise<FetchResult<T>>
 
@@ -48,7 +51,7 @@ export class Client {
 
   json = <T>(url: string, init?: ReqInit): Promise<T> =>
     this.r<T>('json', url, { ...init }).then((x) =>
-      x.ok ? Promise.resolve(x.data) : Promise.reject(new ReqError(x.status, url, x.error, x.timeout)),
+      x.ok ? Promise.resolve(x.data) : Promise.reject(new ReqError(x.status, url, x.error, x.timeout, x.grant)),
     )
 
   send = (re: {
@@ -58,7 +61,7 @@ export class Client {
     body?: string | undefined
   }) =>
     this.r('text', re.url, { method: re.method, headers: re.headers, body: re.body }).then((x) =>
-      !x.ok ? Promise.reject(new ReqError(x.status, re.url, x.error, x.timeout)) : x,
+      !x.ok ? Promise.reject(new ReqError(x.status, re.url, x.error, x.timeout, x.grant)) : x,
     )
 }
 
@@ -68,6 +71,7 @@ export const RETRIES = 3
 /** Timeouts, network errors, 408 / 429 and 5xx can pass; any other 4xx won't change on a retry. */
 export const isTransient = (error: unknown) =>
   error instanceof ReqError &&
+  !error.grant &&
   (error.timeout || error.status === 0 || error.status === 408 || error.status === 429 || error.status >= 500)
 
 /** For tanstack query's `retry`; `count` is the failures so far, minus the one just seen. */
@@ -79,29 +83,27 @@ export const retryDelay = (count: number) => {
   return base / 2 + Math.random() * (base / 2)
 }
 
+/** The origin a failed request needs access to, if that's why it failed. */
+export const grantOf = (error: unknown) => (error instanceof ReqError ? error.grant : undefined)
+
 /** A short, human reason for a failed request. */
 export const describe = (error: unknown) => {
   if (!(error instanceof ReqError)) return 'Something went wrong'
+  if (error.grant) return 'Needs access'
   if (error.timeout) return 'Timed out'
   if (error.status === 0) return 'Network error'
   return `HTTP ${error.status}`
 }
 
-// import * as Http from './http'
-
-// export type Request = { method: string; url: string; headers: Record<string, string>; body?: string }
-
-// /** Run a request, throwing a readable error for network / CORS failures and non-2xx. */
-// export const send = async (r: Request) => {
-
-// }
-
 export class ReqError extends globalThis.Error {
   status: number
   timeout: boolean
-  constructor(status: number, url: string, message?: string, timeout = false) {
+  /** origin to ask access for, when that's why it failed */
+  grant?: string
+  constructor(status: number, url: string, message?: string, timeout = false, grant?: string) {
     super(`${status} ${url}` + (message ? ` ${message}` : ''))
     this.status = status
     this.timeout = timeout
+    this.grant = grant
   }
 }

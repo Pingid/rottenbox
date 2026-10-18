@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rottenbox · Allow access</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #fff;
+        --fg: #18181b;
+        --muted: #71717a;
+        --accent: #0284c7;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #18181b;
+          --fg: #f4f4f5;
+          --muted: #a1a1aa;
+          --accent: #38bdf8;
+        }
+      }
+      body {
+        margin: 0;
+        padding: 20px;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          13px/1.5 system-ui,
+          sans-serif;
+      }
+      h1 {
+        margin: 0 0 6px;
+        font-size: 15px;
+      }
+      p {
+        margin: 0 0 16px;
+        color: var(--muted);
+      }
+      code {
+        color: var(--fg);
+        word-break: break-all;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+      }
+      button {
+        border: 0;
+        border-radius: 6px;
+        padding: 6px 12px;
+        font: inherit;
+        cursor: pointer;
+        background: transparent;
+        color: var(--muted);
+      }
+      button.primary {
+        background: var(--accent);
+        color: #fff;
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Allow Rottenbox to fetch from this source?</h1>
+    <p>A source you added lives at <code id="origin"></code>. Rottenbox only sends it the title you're viewing.</p>
+    <div class="row">
+      <button id="cancel" type="button">Cancel</button>
+      <button id="allow" type="button" class="primary">Allow</button>
+    </div>
+    <script type="module" src="./grant.ts"></script>
+  </body>
+</html>

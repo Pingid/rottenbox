@@ -4,9 +4,9 @@
  */
 const hoistPropertyRules = (css: string) => {
   const rules = css.match(/@property[^{]+\{[^}]*\}/g)
-  if (!rules || document.getElementById('torrenty-properties')) return
+  if (!rules || document.getElementById('rottenbox-properties')) return
   const style = document.createElement('style')
-  style.id = 'torrenty-properties'
+  style.id = 'rottenbox-properties'
   style.textContent = rules.join('\n')
   document.head.appendChild(style)
 }

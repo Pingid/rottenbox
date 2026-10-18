@@ -5,6 +5,7 @@
     "": {
       "name": "torrenty",
       "devDependencies": {
+        "@pingid/opi": "github:pingid/opi#build-10",
         "prettier": "^3.9.10",
       },
     },
@@ -143,6 +144,8 @@
     "@mdn/browser-compat-data": ["@mdn/browser-compat-data@8.1.4", "", {}, "sha512-Cgp3OP3u9x57kT1sZPI115SP5H1IyaBhdDPnvnHRYZ1988kW83wuqcIdcMinLJXlMKOL5Y2cufWHzngh5cVtow=="],
 
     "@oxc-project/types": ["@oxc-project/types@0.154.0", "", {}, "sha512-KYOUGQFlLWR+s4QMV2Q9ko38TZm7EdO87Qm7rvZLqk/webse/cDjtyxKhg/47l0byCbs/k46LT8qc4PKjAikzA=="],
+
+    "@pingid/opi": ["@pingid/opi@github:pingid/opi#8dc5b88", { "bin": { "opi": "dist/cli/index.mjs" } }, "Pingid-opi-8dc5b88", "sha512-KbtTP7/FtmhLqrWt75+oUZg4gSQH1KRmp2zYWaY8zAXtZk7d6jEtKNcruEr2MRqsXKIonw/Dj0Hd7RRFikjHdQ=="],
 
     "@pinojs/redact": ["@pinojs/redact@0.4.0", "", {}, "sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg=="],
 

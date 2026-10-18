@@ -1,3 +1,5 @@
+import type { Rating } from '../lib/ratings'
+
 export type Media = {
   title: string
   year?: string
@@ -30,6 +32,8 @@ export type SiteAdapter = {
   fingerprint?: (doc: Document) => boolean
   /** Extract the media being viewed, or null if the page has none. */
   getMedia: (doc: Document) => Media | null
+  /** Scores the page shows for its own media (e.g. the Tomatometer), best first. */
+  getRatings?: (doc: Document) => Rating[]
   /**
    * Find list entries (e.g. browse grids) not yet decorated, insert a mount
    * element into each and return them. Called again whenever the DOM changes.

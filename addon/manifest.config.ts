@@ -35,7 +35,7 @@ export default defineManifest(() => {
         strict_min_version: '128.0',
         // self-hosted updates: each release ships an updates.json pointing at its signed xpi
         update_url: 'https://github.com/Pingid/rottenbox/releases/latest/download/updates.json',
-        // page titles are sent to Cinemeta / stream addons to look torrents up
+        // page titles are sent to Cinemeta and to sources the user adds, to look ratings and links up
         data_collection_permissions: { required: ['websiteContent' as const] },
       },
     },
@@ -63,8 +63,10 @@ export default defineManifest(() => {
       },
     ],
     permissions: ['storage'],
-    // lets the background worker fetch these hosts without CORS
-    host_permissions: ['https://v3-cinemeta.strem.io/*', 'https://torrentio.strem.fun/*'],
+    // lets the background worker fetch Cinemeta without CORS
+    host_permissions: ['https://v3-cinemeta.strem.io/*'],
+    // user-added sources (Stremio addons, http apis) are asked for one origin at a time, see `src/lib/access.ts`
+    optional_host_permissions: ['https://*/*', 'http://*/*'],
     ...(browser === 'firefox' ? firefox : {}),
   }
 })

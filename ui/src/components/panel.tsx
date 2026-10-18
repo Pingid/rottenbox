@@ -1,16 +1,26 @@
-import { createSignal, Show } from 'solid-js'
+import { createSignal, For, Show } from 'solid-js'
 
-import { Config } from '../context'
+import { Config, Resolve } from '../context'
 import type { Media } from '../sites'
-import { Drag } from '../lib'
+import { Drag, type Rating } from '../lib'
 
 import { CloseIcon, GearIcon, IconButton } from './ui'
-import { Torrents } from './torrents'
+import { Overview } from './overview'
+import { Streams } from './streams'
 import { Settings } from './settings'
 
-export const Panel = (p: { media: Media }) => {
+const TABS: { id: Config.Tab; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'streams', label: 'Streams' },
+]
+
+export const Panel = (p: { media: Media; pageRatings: Rating[] }) => {
   const { config, setConfig } = Config.use()
   const [settings, setSettings] = createSignal(false)
+  // resolved once here so both views share the matched title and picked episode
+  const resolved = Resolve.use(() => p.media)
+  const hasStreams = () => config.sources.some((s) => s.kind === 'stremio' && s.enabled)
+  const tab = () => (hasStreams() ? config.tab : 'overview')
   const vp = Drag.useViewport()
   const [draft, setDraft] = createSignal<Drag.Rect>()
 
@@ -61,13 +71,36 @@ export const Panel = (p: { media: Media }) => {
         </IconButton>
       </header>
 
+      <Show when={hasStreams() && !settings()}>
+        <nav class="flex shrink-0 gap-1 border-b border-line px-2 py-1">
+          <For each={TABS}>
+            {(t) => (
+              <button
+                type="button"
+                aria-pressed={tab() === t.id}
+                onClick={() => setConfig('tab', t.id)}
+                class="rounded px-1.5 py-0.5 text-muted hover:text-fg"
+                classList={{ 'bg-hover text-fg': tab() === t.id }}
+              >
+                {t.label}
+              </button>
+            )}
+          </For>
+        </nav>
+      </Show>
+
       <Show when={settings()}>
         <Settings />
       </Show>
-      {/* hidden rather than unmounted so results survive opening settings */}
-      <div class={settings() ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
-        <Torrents media={p.media} />
+      {/* hidden rather than unmounted so results survive switching views */}
+      <div class={!settings() && tab() === 'overview' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
+        <Overview resolved={resolved} pageRatings={p.pageRatings} />
       </div>
+      <Show when={hasStreams()}>
+        <div class={!settings() && tab() === 'streams' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}>
+          <Streams media={p.media} resolved={resolved} />
+        </div>
+      </Show>
 
       <Grip corner="bl" onPointerDown={drag('resize-bl')} />
       <Grip corner="br" onPointerDown={drag('resize-br')} />

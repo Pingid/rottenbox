@@ -4,12 +4,6 @@ import type { IMDB } from '../lib'
 
 import { ChevronIcon, IconButton, inputClass } from './ui'
 
-/** Specials (season 0) sort last. */
-const seasonKey = (s: number) => (s === 0 ? Infinity : s)
-
-export const sortVideos = (videos: IMDB.MetaVideo[] = []) =>
-  [...videos].sort((a, b) => seasonKey(a.season) - seasonKey(b.season) || a.episode - b.episode)
-
 const isUpcoming = (v: IMDB.MetaVideo) => !!v.released && new Date(v.released).getTime() > Date.now()
 
 /** Season + episode selects with prev/next, over a sorted video list. */

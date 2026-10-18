@@ -1,8 +1,8 @@
-import { LdJson, Page } from '../../lib'
+import { LdJson, Page, Ratings } from '../../lib'
 
 import type { ListItem, Media, SiteAdapter } from '../types'
 
-const MOUNT = 'data-torrenty'
+const MOUNT = 'data-rottenbox'
 
 /** "Interstellar (2014)" -> { title, year } */
 const parseName = (name: string) => {
@@ -15,7 +15,10 @@ type LdMovie = {
   name: string
   dateCreated?: string
   image?: string
+  aggregateRating?: { ratingValue?: number; bestRating?: number; ratingCount?: number }
 }
+
+const ldMovie = (doc: Document) => LdJson.read(doc).find((x): x is LdMovie => (x as LdMovie)?.['@type'] === 'Movie')
 
 export const letterboxd: SiteAdapter = {
   id: 'letterboxd',
@@ -24,7 +27,7 @@ export const letterboxd: SiteAdapter = {
     Page.names(doc).includes('letterboxd') || !!doc.querySelector('[data-component-class="LazyPoster"]'),
   // only film pages carry a Movie ld+json item
   getMedia: (doc) => {
-    const movie = LdJson.read(doc).find((x): x is LdMovie => (x as LdMovie)?.['@type'] === 'Movie')
+    const movie = ldMovie(doc)
     if (!movie) return null
     const imdb = doc.querySelector<HTMLAnchorElement>('a[data-track-action="IMDb"]')?.href.match(/tt\d+/)?.[0]
     return {
@@ -35,6 +38,19 @@ export const letterboxd: SiteAdapter = {
       poster: movie.image,
       imdb,
     } satisfies Media
+  },
+  getRatings: (doc) => {
+    const r = ldMovie(doc)?.aggregateRating
+    const rating =
+      r &&
+      Ratings.from({
+        id: 'letterboxd',
+        label: 'Letterboxd',
+        value: r.ratingValue,
+        max: r.bestRating ?? 5,
+        count: r.ratingCount,
+      })
+    return rating ? [rating] : []
   },
   listItems: (doc) => {
     const items: ListItem[] = []

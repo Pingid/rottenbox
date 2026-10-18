@@ -17,6 +17,9 @@ export const client = new QueryClient({
   },
 })
 
+/** Freshness for user-configured http sources, which give no hint of their own. */
+export const HTTP_STALE = Time.hour
+
 export const use = useQuery
 export const useAll = useQueries
 export const Provider = QueryClientProvider
@@ -40,7 +43,7 @@ export const persistant = (s: Persist.AsyncStorage) => {
  * triggers one.
  */
 const persister = (storage: Persist.AsyncStorage<Record<string, PersistedClient>>): Persister => {
-  // const store = createStore('torrenty', 'cache')
+  // const store = createStore('rottenbox', 'cache')
   let pending: PersistedClient | undefined
   return {
     persistClient: (c) => {

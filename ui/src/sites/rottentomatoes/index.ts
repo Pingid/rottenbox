@@ -1,4 +1,4 @@
-import { Page, RT } from '../../lib'
+import { Page, RT, Ratings, type Rating } from '../../lib'
 
 import type { ListItem, Media, SiteAdapter } from '../types'
 
@@ -28,9 +28,9 @@ const toMedia = (item: RT.MediaPageItem): Media => {
 }
 
 /** Set on our mount element, so a tile counts as decorated only while the mount is in it. */
-const MOUNT = 'data-torrenty'
+const MOUNT = 'data-rottenbox'
 /** Set on tiles with nothing to decorate, so they aren't rescanned on every DOM change. */
-const SKIP = 'data-torrenty-skip'
+const SKIP = 'data-rottenbox-skip'
 
 /** ld+json list entries keyed by path, used to fill in years for tiles. */
 const listIndex = (doc: Document) => {
@@ -45,6 +45,31 @@ const listIndex = (doc: Document) => {
   return map
 }
 
+type Score = { score?: string; title?: string; reviewCount?: number; ratingCount?: number; reviewsPageUrl?: string }
+
+/** The page's scorecard json: both meters, with counts. */
+const scorecard = (doc: Document) => {
+  try {
+    const text = doc.querySelector('script#media-scorecard-json')?.textContent
+    return text ? (JSON.parse(text) as { criticsScore?: Score; audienceScore?: Score }) : null
+  } catch {
+    return null
+  }
+}
+
+const meter = (id: string, label: string, s: Score | undefined): Rating | null =>
+  s
+    ? Ratings.from({
+        id,
+        label: s.title || label,
+        value: s.score,
+        max: 100,
+        format: 'percent',
+        count: s.ratingCount ?? s.reviewCount,
+        url: s.reviewsPageUrl && new URL(s.reviewsPageUrl, location.href).href,
+      })
+    : null
+
 export const rottenTomatoes: SiteAdapter = {
   id: 'rottentomatoes',
   match: (url) => /(^|\.)rottentomatoes\.com$/.test(url.hostname),
@@ -55,6 +80,24 @@ export const rottenTomatoes: SiteAdapter = {
   getMedia: (doc) => {
     const item = RT.getMediaItem(doc)
     return item ? toMedia(item) : null
+  },
+  getRatings: (doc) => {
+    const card = scorecard(doc)
+    // ld+json only has the Tomatometer; it's the fallback when the scorecard markup changes
+    const ld = RT.getMediaItem(doc)?.aggregateRating
+    return Ratings.dedupe([
+      meter('tomatometer', 'Tomatometer', card?.criticsScore),
+      ld &&
+        Ratings.from({
+          id: 'tomatometer',
+          label: 'Tomatometer',
+          value: ld.ratingValue,
+          max: 100,
+          format: 'percent',
+          count: ld.ratingCount ?? ld.reviewCount,
+        }),
+      meter('popcornmeter', 'Popcornmeter', card?.audienceScore),
+    ])
   },
   listItems: (doc) => {
     const tiles = [...doc.querySelectorAll(`media-info-tile:not([${SKIP}])`)].filter(

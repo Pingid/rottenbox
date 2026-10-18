@@ -1,61 +1,42 @@
+import { Manifest } from '../lib'
+
 import * as Config from './config'
 import * as Theme from './theme'
 
 /**
  * Portable settings file: what you'd want in another browser, not this one's
- * panel placement. `version` bumps when the shape changes, so old files can
- * still be read (or refused) later.
+ * panel placement. Same shape as a shareable pack, plus actions and theme.
  */
-export type Manifest = {
-  app: 'rottenbox'
-  version: 1
-  theme: Theme.Mode
-  quality: string
-  providers: Config.StreamProvider[]
-  actions: Config.Action[]
-}
-
-export const VERSION = 1
 export const FILENAME = 'rottenbox-settings.json'
 
-export const toManifest = (c: Config.Config, theme: Theme.Mode): Manifest => ({
+export const toManifest = (c: Config.Config, theme: Theme.Mode): Manifest.Manifest => ({
   app: 'rottenbox',
-  version: VERSION,
+  version: Manifest.VERSION,
   theme,
   quality: c.quality,
-  // copied out of the store's proxies
-  providers: c.providers.map((x) => ({ ...x })),
-  actions: c.actions.map((x) => ({ ...x })),
+  // plain copies of the store's proxies
+  sources: JSON.parse(JSON.stringify(c.sources)),
+  actions: JSON.parse(JSON.stringify(c.actions)),
 })
 
-export const stringify = (m: Manifest) => JSON.stringify(m, null, 2)
+export const stringify = Manifest.stringify
 
-export type Parsed = { ok: true; manifest: Manifest } | { ok: false; error: string }
+export type Restored = { theme: Theme.Mode; quality: string; sources: Config.Source[]; actions: Config.Action[] }
 
-/** Read a pasted or uploaded file, normalizing entries the same way saved settings are loaded. */
+export type Parsed = { ok: true; settings: Restored } | { ok: false; error: string }
+
+/** Read a pasted or uploaded file; missing lists keep the defaults, matching how saved settings load. */
 export const parse = (text: string): Parsed => {
-  let json: any
-  try {
-    json = JSON.parse(text)
-  } catch {
-    return { ok: false, error: "That isn't valid JSON." }
-  }
-  if (!json || typeof json !== 'object' || json.app !== 'rottenbox') {
-    return { ok: false, error: "That isn't a Rottenbox settings file." }
-  }
-  if (typeof json.version !== 'number' || json.version > VERSION) {
-    return { ok: false, error: 'This file is from a newer version of Rottenbox.' }
-  }
+  const parsed = Manifest.parse(text)
+  if (!parsed.ok) return parsed
+  const m = parsed.manifest
   return {
     ok: true,
-    manifest: {
-      app: 'rottenbox',
-      version: VERSION,
-      theme: Theme.MODES.includes(json.theme) ? json.theme : 'system',
-      quality: typeof json.quality === 'string' ? json.quality : 'all',
-      // missing lists keep the defaults, matching how saved settings load
-      providers: structuredClone(Config.loadProviders(json)),
-      actions: structuredClone(Config.loadActions(json)),
+    settings: {
+      theme: Theme.MODES.includes(m.theme as Theme.Mode) ? (m.theme as Theme.Mode) : 'system',
+      quality: m.quality ?? 'all',
+      sources: m.sources.length ? m.sources : structuredClone(Config.DEFAULT_SOURCES),
+      actions: m.actions ?? structuredClone(Config.DEFAULT_ACTIONS),
     },
   }
 }

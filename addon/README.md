@@ -1,6 +1,6 @@
 # Rottenbox
 
-Browser extension that adds a torrent panel to movie and TV pages on Rotten Tomatoes, Letterboxd and Metacritic. The panel itself lives in [`../ui`](../ui); this package wraps it as a Manifest V3 extension for Chrome and Firefox.
+Browser extension that adds a ratings and links panel to movie and TV pages on Rotten Tomatoes, Letterboxd and Metacritic. The panel itself lives in [`../ui`](../ui); this package wraps it as a Manifest V3 extension for Chrome and Firefox.
 
 Click the toolbar icon to turn the extension on or off everywhere. The tomato loses its stink lines while it's off. Open tabs update straight away.
 
@@ -48,10 +48,12 @@ Secrets: `CRX_PRIVATE_KEY` (base64 Chrome key), `AMO_JWT_ISSUER` and `AMO_JWT_SE
 - `src/content/` – content script; mounts the UI when enabled
 - `src/background/` – toggles on icon click and swaps the icon
 - `src/lib/enabled.ts` – on/off state in `chrome.storage.local`
+- `src/lib/access.ts`, `src/grant/` – asks for host access to user-added sources
 - `icons/` – SVG sources for the toolbar icons; PNGs in `public/icons/`
 
 ## Permissions
 
 - `storage` – remembers whether the extension is enabled
-- Host access to `v3-cinemeta.strem.io` and `torrentio.strem.fun` – lets the background worker look up titles and torrents without CORS
+- Host access to `v3-cinemeta.strem.io` – lets the background worker match titles to IMDb ids without CORS
+- Optional host access, one origin at a time – asked for the first time a source you added (a Stremio addon, an http api) is fetched. A small prompt window opens; nothing is requested up front. Link sources need no access, they're plain links
 - Content script on `rottentomatoes.com`, `letterboxd.com` and `metacritic.com` only

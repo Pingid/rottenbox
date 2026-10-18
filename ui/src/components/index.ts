@@ -1,5 +1,6 @@
 export * from './episodes'
 export * from './panel'
 export * from './settings'
-export * from './torrents'
+export * from './streams'
+export * from './overview'
 export * from './ui'

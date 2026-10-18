@@ -1,10 +1,8 @@
 import { createSignal, For, onCleanup, Show, type JSX } from 'solid-js'
 
 import { CheckIcon, CloseIcon, IconButton, inputClass } from './ui'
-import { Clipboard } from '../lib'
-import { Backup, Config, Theme } from '../context'
-
-const newId = Config.newId
+import { Clipboard, Manifest, Req } from '../lib'
+import { Backup, Config, Fetch, Theme } from '../context'
 
 /** Signal that falls back to `false` a moment after being set. */
 const createFlash = (ms: number) => {
@@ -52,6 +50,7 @@ const Section = (p: { title: string; description?: JSX.Element; aside?: JSX.Elem
 /** Bordered card for one list entry: a header row (toggle, label, remove) above its fields. */
 const Card = (p: {
   label: string
+  badge?: string
   placeholder: string
   onLabel: (v: string) => void
   onRemove: () => void
@@ -68,6 +67,9 @@ const Card = (p: {
         value={p.label}
         onInput={(e) => p.onLabel(e.currentTarget.value)}
       />
+      <Show when={p.badge}>
+        <span class="shrink-0 rounded bg-raised px-1 text-subtle ring-1 ring-line">{p.badge}</span>
+      </Show>
       <IconButton title="Remove" onClick={p.onRemove}>
         <CloseIcon />
       </IconButton>
@@ -180,43 +182,15 @@ export const Settings = () => {
     <div class="min-h-0 flex-1 divide-y divide-line overflow-y-auto">
       <Section title="Theme" aside={<Segmented value={theme.mode()} options={THEMES} onChange={theme.setMode} />} />
 
-      <Section
-        title="Providers"
-        description="Stremio addons searched for torrents, in order. Paste the addon's url or manifest link, including any configuration."
-        aside={<ResetButton onReset={() => setConfig('providers', structuredClone(Config.DEFAULT_PROVIDERS))} />}
-      >
-        <For each={config.providers}>
-          {(provider, i) => (
-            <Card
-              label={provider.label}
-              placeholder="Provider name"
-              onLabel={(v) => setConfig('providers', i(), 'label', v)}
-              onRemove={() => setConfig('providers', (ps) => ps.filter((x) => x.id !== provider.id))}
-              enabled={provider.enabled}
-              onToggle={(v) => setConfig('providers', i(), 'enabled', v)}
-            >
-              <input
-                aria-label="Addon url"
-                class={`${inputClass} font-mono`}
-                placeholder="https://torrentio.strem.fun/manifest.json"
-                value={provider.url}
-                onInput={(e) => setConfig('providers', i(), 'url', e.currentTarget.value)}
-              />
-            </Card>
-          )}
-        </For>
-        <AddButton
-          label="Add provider"
-          onClick={() => setConfig('providers', (ps) => [...ps, { id: newId(), label: '', url: '', enabled: true }])}
-        />
-      </Section>
+      <SourcesSection />
 
       <Section
         title="Actions"
         description={
           <>
-            Shown on each torrent. <b class="font-medium text-fg">Link</b> opens the url (magnet, player, site); any
-            other method sends it as a request, e.g. to a download client. Click a placeholder to copy it.
+            Shown on each stream. <b class="font-medium text-fg">Link</b> opens the url (magnet, player, site); any
+            other method sends it as a request, e.g. to a download client. Actions using a placeholder the stream lacks
+            (<code>{'{magnet}'}</code> on an http stream) are hidden. Click a placeholder to copy it.
           </>
         }
         aside={<ResetButton onReset={() => setConfig('actions', structuredClone(Config.DEFAULT_ACTIONS))} />}
@@ -274,7 +248,7 @@ export const Settings = () => {
         </For>
         <AddButton
           label="Add action"
-          onClick={() => setConfig('actions', (as) => [...as, Config.newAction(newId())])}
+          onClick={() => setConfig('actions', (as) => [...as, Config.newAction(Config.newId())])}
         />
       </Section>
 
@@ -283,7 +257,9 @@ export const Settings = () => {
   )
 }
 
-/** Export settings as a JSON file / clipboard text, and import one back (replacing providers and actions). */
+const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+/** Export settings as a JSON file / clipboard text, and import one back (replacing sources and actions). */
 const BackupSection = () => {
   const { config, setConfig } = Config.use()
   const theme = Theme.use()
@@ -297,14 +273,13 @@ const BackupSection = () => {
   const apply = () => {
     const parsed = Backup.parse(text())
     if (!parsed.ok) return setStatus({ ok: false, message: parsed.error })
-    const m = parsed.manifest
-    setConfig({ quality: m.quality, providers: m.providers, actions: m.actions })
+    const m = parsed.settings
+    setConfig({ quality: m.quality, sources: m.sources, actions: m.actions })
     theme.setMode(m.theme)
     setText('')
-    const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
     setStatus({
       ok: true,
-      message: `Imported ${count(m.providers.length, 'provider')} and ${count(m.actions.length, 'action')}.`,
+      message: `Imported ${count(m.sources.length, 'source')} and ${count(m.actions.length, 'action')}.`,
     })
   }
 
@@ -320,7 +295,7 @@ const BackupSection = () => {
   return (
     <Section
       title="Backup"
-      description="Save your providers, actions and theme as JSON, to restore later or move to another browser. Request headers are included, so keep the file private if they hold tokens."
+      description="Save your sources, actions and theme as a Rottenbox manifest, to restore later or move to another browser. Request headers are included, so keep the file private if they hold tokens."
       aside={
         <div class="flex gap-0.5">
           <button
@@ -372,5 +347,262 @@ const BackupSection = () => {
         </button>
       </div>
     </Section>
+  )
+}
+
+const KIND_LABEL: Record<Manifest.Kind, string> = { stremio: 'Stremio', links: 'Links', http: 'HTTP' }
+
+const PLACEHOLDER: Record<Manifest.Kind, string> = {
+  stremio: 'Addon name',
+  links: 'Group name, e.g. Watch on',
+  http: 'Source name',
+}
+
+/** Sources list: one card per source, fields by kind, plus paste-to-add. */
+const SourcesSection = () => {
+  const { config, setConfig } = Config.use()
+  /** merge into source `i`, keeping its kind */
+  const set = (i: number, patch: Partial<Manifest.Source>) =>
+    setConfig('sources', i, (s) => ({ ...s, ...patch }) as Manifest.Source)
+
+  return (
+    <Section
+      title="Sources"
+      description={
+        <>
+          Where ratings, links and streams come from. <b class="font-medium text-fg">Links</b> are url templates
+          (streaming services, databases); <b class="font-medium text-fg">Stremio</b> addons add a Streams tab;{' '}
+          <b class="font-medium text-fg">HTTP</b> sources map a json api to ratings or links. The placeholders under
+          Actions work in every url.
+        </>
+      }
+      aside={<ResetButton onReset={() => setConfig('sources', structuredClone(Config.DEFAULT_SOURCES))} />}
+    >
+      <For each={config.sources}>
+        {(source, i) => (
+          <Card
+            label={source.label}
+            badge={KIND_LABEL[source.kind]}
+            placeholder={PLACEHOLDER[source.kind]}
+            onLabel={(v) => set(i(), { label: v })}
+            onRemove={() => setConfig('sources', (ss) => ss.filter((x) => x.id !== source.id))}
+            enabled={source.enabled}
+            onToggle={(v) => set(i(), { enabled: v })}
+          >
+            <Show when={source.kind === 'stremio' && source}>
+              {(s) => (
+                <input
+                  aria-label="Addon url"
+                  class={`${inputClass} font-mono`}
+                  placeholder="https://addon.example/manifest.json"
+                  value={s().url}
+                  onInput={(e) => set(i(), { url: e.currentTarget.value })}
+                />
+              )}
+            </Show>
+            <Show when={source.kind === 'links' && source}>{(s) => <LinksFields source={s()} index={i()} />}</Show>
+            <Show when={source.kind === 'http' && source}>{(s) => <HttpFields source={s()} index={i()} />}</Show>
+          </Card>
+        )}
+      </For>
+      <AddSource />
+    </Section>
+  )
+}
+
+const LinksFields = (p: { source: Manifest.LinksSource; index: number }) => {
+  const { setConfig } = Config.use()
+  const setLinks = (fn: (ls: Manifest.Link[]) => Manifest.Link[]) =>
+    setConfig('sources', p.index, (s) => (s.kind === 'links' ? { ...s, links: fn(s.links) } : s))
+  const setLink = (id: string, patch: Partial<Manifest.Link>) =>
+    setLinks((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)))
+  return (
+    <div class="space-y-1">
+      <For each={p.source.links}>
+        {(link) => (
+          <div class="flex gap-1">
+            <input
+              aria-label="Link label"
+              class={`${inputClass} w-24! shrink-0`}
+              placeholder="Label"
+              value={link.label}
+              onInput={(e) => setLink(link.id, { label: e.currentTarget.value })}
+            />
+            <input
+              aria-label="Link url"
+              class={`${inputClass} font-mono`}
+              placeholder="https://example.com/search?q={title}"
+              value={link.url}
+              onInput={(e) => setLink(link.id, { url: e.currentTarget.value })}
+            />
+            <IconButton title="Remove link" onClick={() => setLinks((ls) => ls.filter((l) => l.id !== link.id))}>
+              <CloseIcon />
+            </IconButton>
+          </div>
+        )}
+      </For>
+      <button
+        type="button"
+        class="rounded px-1.5 py-0.5 text-muted hover:bg-hover hover:text-fg"
+        onClick={() => setLinks((ls) => [...ls, { id: Config.newId(), label: '', url: '' }])}
+      >
+        + Link
+      </button>
+    </div>
+  )
+}
+
+const MAP_FIELDS: { key: keyof Manifest.HttpMap; label: string; hint: string; for?: 'rating' | 'links' }[] = [
+  { key: 'items', label: 'Items', hint: 'list path, optional' },
+  { key: 'label', label: 'Label', hint: 'path' },
+  { key: 'value', label: 'Value', hint: 'path', for: 'rating' },
+  { key: 'max', label: 'Max', hint: 'number or path' },
+  { key: 'url', label: 'Url', hint: 'path' },
+]
+
+const HttpFields = (p: { source: Manifest.HttpSource; index: number }) => {
+  const { setConfig } = Config.use()
+  const set = (patch: Partial<Manifest.HttpSource>) =>
+    setConfig('sources', p.index, (s) => (s.kind === 'http' ? { ...s, ...patch } : s))
+  const setMap = (key: keyof Manifest.HttpMap, v: string) => set({ map: { ...p.source.map, [key]: v } })
+  const fields = () =>
+    MAP_FIELDS.filter((f) => (f.key === 'max' ? p.source.produces === 'rating' : !f.for || f.for === p.source.produces))
+  return (
+    <>
+      <div class="flex items-center gap-1">
+        <input
+          aria-label="Url"
+          class={`${inputClass} font-mono`}
+          placeholder="https://api.example.com/title/{imdb}"
+          value={p.source.url}
+          onInput={(e) => set({ url: e.currentTarget.value })}
+        />
+        <Segmented
+          value={p.source.produces}
+          options={[
+            { value: 'rating', label: 'Ratings' },
+            { value: 'links', label: 'Links' },
+          ]}
+          onChange={(v) => set({ produces: v })}
+        />
+      </div>
+      <Field label="Headers" hint="one per line">
+        <textarea
+          class={`${inputClass} resize-y font-mono`}
+          rows={1}
+          placeholder="Authorization: Bearer …"
+          value={p.source.headers}
+          onInput={(e) => set({ headers: e.currentTarget.value })}
+        />
+      </Field>
+      <div class="grid grid-cols-2 gap-x-2 gap-y-1.5">
+        <For each={fields()}>
+          {(f) => (
+            <Field label={f.label} hint={f.hint}>
+              <input
+                class={`${inputClass} font-mono`}
+                value={p.source.map[f.key]}
+                onInput={(e) => setMap(f.key, e.currentTarget.value)}
+              />
+            </Field>
+          )}
+        </For>
+      </div>
+    </>
+  )
+}
+
+/** Paste a Stremio addon / Rottenbox manifest (url or json) to add its sources, or start a blank one. */
+const AddSource = () => {
+  const { setConfig } = Config.use()
+  const r = Fetch.use()
+  const grant = Fetch.useGrant()
+  const [text, setText] = createSignal('')
+  const [busy, setBusy] = createSignal(false)
+  const [status, setStatus] = createSignal<{ ok: boolean; message: string; grant?: string }>()
+
+  const add = (sources: Manifest.Source[]) => setConfig('sources', (ss) => [...ss, ...sources])
+
+  const run = async () => {
+    setBusy(true)
+    setStatus(undefined)
+    try {
+      const found = await Manifest.detect(r, text())
+      if (!found.sources.length) throw new Error('No sources in that manifest.')
+      add(found.sources)
+      setText('')
+      const names =
+        found.name ??
+        found.sources
+          .map((s) => s.label)
+          .filter(Boolean)
+          .join(', ')
+      setStatus({ ok: true, message: `Added ${count(found.sources.length, 'source')}${names ? `: ${names}` : ''}.` })
+    } catch (e) {
+      const origin = Req.grantOf(e)
+      const message = origin
+        ? `Rottenbox needs access to ${origin}.`
+        : e instanceof Req.ReqError
+          ? `Couldn't read that: ${Req.describe(e)}.`
+          : e instanceof Error
+            ? e.message
+            : String(e)
+      setStatus({ ok: false, message, grant: origin })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const button = 'rounded px-1.5 py-0.5 text-muted hover:bg-hover hover:text-fg'
+
+  return (
+    <div class="space-y-1.5 rounded-md border border-dashed border-line-strong p-2">
+      <div class="flex gap-1">
+        <input
+          aria-label="Addon or manifest to add"
+          class={`${inputClass} font-mono`}
+          placeholder="Stremio addon or Rottenbox manifest url / json"
+          value={text()}
+          onInput={(e) => (setText(e.currentTarget.value), setStatus(undefined))}
+          onKeyDown={(e) => e.key === 'Enter' && text().trim() && !busy() && run()}
+        />
+        <button
+          type="button"
+          disabled={!text().trim() || busy()}
+          onClick={run}
+          class="shrink-0 rounded bg-accent px-2 py-0.5 text-white hover:opacity-90 disabled:opacity-40"
+        >
+          {busy() ? 'Adding…' : 'Add'}
+        </button>
+      </div>
+      <Show when={status()}>
+        {(st) => (
+          <p classList={{ 'text-ok': st().ok, 'text-danger': !st().ok }}>
+            {st().message}
+            <Show when={grant && st().grant}>
+              {(o) => (
+                <button
+                  type="button"
+                  class="ml-1.5 rounded px-1.5 text-accent hover:bg-accent-soft"
+                  onClick={async () => (await grant!(o())) && run()}
+                >
+                  Grant access
+                </button>
+              )}
+            </Show>
+          </p>
+        )}
+      </Show>
+      <div class="flex items-center gap-0.5 text-subtle">
+        <span class="mr-1">or start a blank</span>
+        <For each={Manifest.KINDS}>
+          {(k) => (
+            <button type="button" class={button} onClick={() => add([Manifest.blank(k)])}>
+              {KIND_LABEL[k]}
+            </button>
+          )}
+        </For>
+      </div>
+    </div>
   )
 }

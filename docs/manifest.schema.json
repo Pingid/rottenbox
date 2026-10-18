@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Pingid/rottenbox/blob/main/docs/manifest.schema.json",
+  "title": "Rottenbox manifest",
+  "type": "object",
+  "required": ["app", "version", "sources"],
+  "properties": {
+    "app": { "const": "rottenbox" },
+    "version": { "const": 2 },
+    "name": { "type": "string" },
+    "sources": { "type": "array", "items": { "$ref": "#/$defs/source" } },
+    "actions": { "type": "array", "items": { "$ref": "#/$defs/action" } },
+    "theme": { "enum": ["system", "light", "dark"] },
+    "quality": { "type": "string" }
+  },
+  "$defs": {
+    "base": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "enabled": { "type": "boolean", "default": true }
+      }
+    },
+    "source": {
+      "oneOf": [
+        {
+          "allOf": [{ "$ref": "#/$defs/base" }],
+          "type": "object",
+          "required": ["kind", "url"],
+          "properties": {
+            "kind": { "const": "stremio" },
+            "url": { "type": "string", "description": "addon base url, manifest.json url or stremio:// link" }
+          }
+        },
+        {
+          "allOf": [{ "$ref": "#/$defs/base" }],
+          "type": "object",
+          "required": ["kind", "links"],
+          "properties": {
+            "kind": { "const": "links" },
+            "links": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["url"],
+                "properties": {
+                  "id": { "type": "string" },
+                  "label": { "type": "string" },
+                  "url": { "type": "string", "description": "url template with {placeholders}" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "allOf": [{ "$ref": "#/$defs/base" }],
+          "type": "object",
+          "required": ["kind", "url"],
+          "properties": {
+            "kind": { "const": "http" },
+            "url": { "type": "string" },
+            "headers": { "type": "string", "description": "one `Key: Value` per line" },
+            "produces": { "enum": ["rating", "links"], "default": "rating" },
+            "map": {
+              "type": "object",
+              "properties": {
+                "items": { "type": "string" },
+                "label": { "type": "string" },
+                "value": { "type": "string" },
+                "max": { "type": ["string", "number"] },
+                "url": { "type": "string" }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "action": {
+      "type": "object",
+      "required": ["url"],
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "method": { "enum": ["LINK", "POST", "PUT", "PATCH", "GET", "DELETE"], "default": "LINK" },
+        "url": { "type": "string" },
+        "headers": { "type": "string" },
+        "body": { "type": "string" }
+      }
+    }
+  }
+}

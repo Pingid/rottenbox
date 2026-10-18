@@ -1,6 +1,6 @@
 import { queryOptions } from '@tanstack/solid-query'
 
-import { Http, Time } from '../util'
+import { Req, Time } from '../util'
 
 import type { Stream, StreamResponse } from './types'
 
@@ -18,8 +18,8 @@ export const baseUrl = (url: string) =>
     .replace(/\/+$/, '')
 
 /** `id` is an imdb id for movies, `{imdb}:{season}:{episode}` for series. */
-export const query = (addon: string, type: 'movie' | 'series', id: string) =>
-  Http.json<StreamResponse>(`${baseUrl(addon)}/stream/${type}/${id}.json`)
+export const query = (r: Req.Client, addon: string, type: 'movie' | 'series', id: string) =>
+  r.json<StreamResponse>(`${baseUrl(addon)}/stream/${type}/${id}.json`)
 
 export const queries = {
   /**
@@ -27,10 +27,10 @@ export const queries = {
    * cached (`select` runs per observer), so the persisted cache survives
    * parser changes. Freshness follows the addon's own hint (default 1h).
    */
-  streams: (addon: string, type: 'movie' | 'series', id: string) =>
+  streams: (r: Req.Client, addon: string, type: 'movie' | 'series', id: string) =>
     queryOptions({
       queryKey: ['stremio', baseUrl(addon), type, id] as const,
-      queryFn: () => query(addon, type, id),
+      queryFn: () => query(r, addon, type, id),
       select: (r) => r.streams.filter(isTorrent).map(parseStream),
       staleTime: (q) => (q.state.data?.cacheMaxAge ?? 3600) * Time.second,
       // Torrentio allows stale-if-error for a week: old results beat none.

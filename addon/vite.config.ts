@@ -4,7 +4,8 @@ import { crx } from '@crxjs/vite-plugin'
 import { defineConfig } from 'vite'
 import solid from 'vite-plugin-solid'
 import zip from 'vite-plugin-zip-pack'
-import manifest from './manifest.config.ts'
+
+import manifest, { browser } from './manifest.config.ts'
 
 export default defineConfig({
   resolve: {
@@ -13,7 +14,13 @@ export default defineConfig({
       '@': `${path.resolve(import.meta.dirname, 'src')}`,
     },
   },
-  plugins: [tailwindcss(), solid(), crx({ manifest }), zip({ outDir: 'release', outFileName: `chrome.zip` })],
+  plugins: [
+    tailwindcss(),
+    solid(),
+    crx({ manifest, browser: (process.env['BROWSER'] as any) ?? 'chrome' }),
+    //
+    zip({ outDir: 'release', outFileName: `${browser}.zip` }),
+  ],
   server: {
     cors: {
       origin: [/chrome-extension:\/\//],

@@ -163,13 +163,28 @@ const isAction = (a: any): a is Action => !!a && typeof a.id === 'string' && MET
  * Saved actions, migrating configs from before links and requests were merged
  * (separate `links: {url}[]` and `actions: {method, …}[]` lists).
  */
-const loadActions = (saved: any): Action[] => {
+export const loadActions = (saved: any): Action[] => {
   if (!Array.isArray(saved.actions) && !Array.isArray(saved.links)) return DEFAULTS.actions
   const links = Array.isArray(saved.links) ? saved.links : []
   const actions = Array.isArray(saved.actions) ? saved.actions : []
   return [...links.map((l: any) => ({ ...l, method: 'LINK' })), ...actions]
     .filter((a) => a && typeof a.id === 'string')
     .map((a) => newAction(a.id, { ...a, method: isAction(a) ? a.method : 'POST' }))
+}
+
+export const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+
+/** Saved providers with a url, filling any missing fields. */
+export const loadProviders = (saved: any): StreamProvider[] => {
+  if (!Array.isArray(saved.providers)) return DEFAULTS.providers
+  return saved.providers
+    .filter((p: any) => p && typeof p.url === 'string')
+    .map((p: any) => ({
+      id: typeof p.id === 'string' ? p.id : newId(),
+      label: typeof p.label === 'string' ? p.label : '',
+      url: p.url,
+      enabled: p.enabled !== false,
+    }))
 }
 
 const load = async (s: Persist.AsyncStorage): Promise<Config> => {
@@ -181,7 +196,7 @@ const load = async (s: Persist.AsyncStorage): Promise<Config> => {
       rect: isRect(saved.rect) ? saved.rect : undefined,
       quality: typeof saved.quality === 'string' ? saved.quality : DEFAULTS.quality,
       actions: loadActions(saved),
-      providers: Array.isArray(saved.providers) ? saved.providers : DEFAULTS.providers,
+      providers: loadProviders(saved),
     })
   } catch {
     return structuredClone(DEFAULTS)

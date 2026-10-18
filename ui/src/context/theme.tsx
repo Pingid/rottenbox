@@ -7,7 +7,7 @@ export const MODES: Mode[] = ['system', 'light', 'dark']
 
 const KEY = 'rottenbox:theme'
 
-const query = () => window.matchMedia('(prefers-color-scheme: dark)')
+const query = () => (typeof window !== 'undefined' ? window.matchMedia('(prefers-color-scheme: dark)') : undefined)
 
 /**
  * Light or dark. `system` follows the OS; `resolved` is which of the two that
@@ -18,7 +18,7 @@ type Ctx = { mode: () => Mode; resolved: () => 'light' | 'dark'; setMode: (m: Mo
 
 const fallback: Ctx = {
   mode: () => 'system',
-  resolved: () => (query().matches ? 'dark' : 'light'),
+  resolved: () => (query()?.matches ? 'dark' : 'light'),
   setMode: () => {},
 }
 const Context = createContext<Ctx>(fallback)
@@ -27,14 +27,14 @@ export const use = (): Ctx => useContext(Context) ?? fallback
 export const Provider: ParentComponent = (p) => {
   const storage = Persist.use<{ [KEY]: Mode }>()
   const [mode, setModeSignal] = createSignal<Mode>('system')
-  const [systemDark, setSystemDark] = createSignal(query().matches)
+  const [systemDark, setSystemDark] = createSignal(query()?.matches)
 
   onMount(() => {
     storage.get(KEY).then((m) => m && MODES.includes(m) && setModeSignal(m))
     const q = query()
-    const onChange = () => setSystemDark(q.matches)
-    q.addEventListener('change', onChange)
-    onCleanup(() => q.removeEventListener('change', onChange))
+    const onChange = () => setSystemDark(q?.matches)
+    q?.addEventListener('change', onChange)
+    onCleanup(() => q?.removeEventListener('change', onChange))
   })
 
   const resolved = () => (mode() === 'system' ? (systemDark() ? 'dark' : 'light') : (mode() as 'light' | 'dark'))

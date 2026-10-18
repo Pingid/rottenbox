@@ -1,9 +1,8 @@
 export * as Clipboard from './clipboard'
 export * as Drag from './drag'
-export * as Http from './http'
 export * as Page from './page'
-export * as Request from './request'
 export * as Time from './time'
+export * as Req from './req'
 
 /** All ld+json payloads on the page, flattened (arrays and @graph). */
 const readLdJson = (d: Document): unknown[] =>

@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider, useQueries, useQuery } from '@tanstac
 
 import type * as Persist from './persist'
 
-import { Http, Time } from '../lib'
+import { Time, Req } from '../lib'
 
 /** Bump when cached data shapes change to drop old persisted entries. */
 const BUSTER = '1'
@@ -12,7 +12,8 @@ const KEY = 'query-cache'
 export const client = new QueryClient({
   defaultOptions: {
     // per-query staleTime / gcTime live with each api's `queries`
-    queries: { gcTime: Time.day, retry: Http.retry, refetchOnWindowFocus: false },
+    // transient failures (timeouts, 5xx…) retry with backoff; see `Req.retry`
+    queries: { gcTime: Time.day, retry: Req.retry, retryDelay: Req.retryDelay, refetchOnWindowFocus: false },
   },
 })
 

@@ -6,7 +6,7 @@
   "description": "Find torrent streams for movies and TV shows while browsing Rotten Tomatoes, Letterboxd and Metacritic.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && BROWSER=chrome vite build && BROWSER=firefox vite build",
     "preview": "vite preview"
   },
   "dependencies": {

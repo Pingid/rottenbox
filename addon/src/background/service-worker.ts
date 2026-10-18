@@ -1,7 +1,7 @@
 import * as Enabled from '@/lib/enabled'
+import { background } from '@/lib/fetch'
 
-const icon = (name: string) =>
-  Object.fromEntries([16, 32, 48, 128].map((size) => [size, `/icons/${name}-${size}.png`]))
+const icon = (name: string) => Object.fromEntries([16, 32, 48, 128].map((size) => [size, `/icons/${name}-${size}.png`]))
 
 /** Reflect the state on the toolbar icon: the stinky tomato when on, plain when off. */
 const show = (enabled: boolean) => {
@@ -13,3 +13,5 @@ const show = (enabled: boolean) => {
 Enabled.watch(show)
 
 chrome.action.onClicked.addListener(async () => Enabled.set(!(await Enabled.get())))
+
+background()

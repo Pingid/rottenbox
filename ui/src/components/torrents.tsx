@@ -1,23 +1,24 @@
 import { createMemo, createSignal, For, Match, onCleanup, Show, Switch } from 'solid-js'
 
-import { Clipboard, IMDB, Request, Stremio } from '../lib'
+import { Clipboard, IMDB, Req, Stremio } from '../lib'
 import type { Media } from '../sites'
 
 import { EpisodePicker, sortVideos } from './episodes'
 import { CheckIcon, CopyIcon, IconButton, inputClass, Message } from './ui'
-import { Config, Query } from '../context'
+import { Config, Query, Fetch } from '../context'
 
 export const Torrents = (p: { media: Media }) => {
   const { config, setConfig } = Config.use()
+  const r = Fetch.use()
 
   // Resolve the title to a Cinemeta entry: by IMDb id when the site gives one,
   // else (or if the id is unknown) by title search.
   const byId = Query.use(() => ({
-    ...IMDB.queries.meta(p.media.type, p.media.imdb ?? ''),
+    ...IMDB.queries.meta(r, p.media.type, p.media.imdb ?? ''),
     enabled: !!p.media.imdb,
   }))
   const search = Query.use(() => ({
-    ...IMDB.queries.search({ query: p.media.title, year: p.media.year, type: p.media.type }),
+    ...IMDB.queries.search(r, { query: p.media.title, year: p.media.year, type: p.media.type }),
     enabled: !p.media.imdb || byId.isError,
   }))
   const metas = () => (byId.data ? [byId.data] : (search.data ?? []))
@@ -31,7 +32,7 @@ export const Torrents = (p: { media: Media }) => {
   // series: load the episode list and track which one is picked
   const isSeries = () => p.media.type === 'series'
   const details = Query.use(() => ({
-    ...IMDB.queries.meta('series', meta()?.id ?? ''),
+    ...IMDB.queries.meta(r, 'series', meta()?.id ?? ''),
     enabled: isSeries() && !!meta(),
   }))
   const videos = createMemo(() => sortVideos(details.data?.videos))
@@ -55,7 +56,7 @@ export const Torrents = (p: { media: Media }) => {
   const providers = () => config.providers.filter((x) => x.enabled && x.url.trim())
   const results = Query.useAll(() => ({
     queries: providers().map((x) => ({
-      ...Stremio.queries.streams(x.url, p.media.type, streamId() ?? ''),
+      ...Stremio.queries.streams(r, x.url, p.media.type, streamId() ?? ''),
       enabled: !!streamId(),
     })),
   }))
@@ -65,6 +66,18 @@ export const Torrents = (p: { media: Media }) => {
   )
   const streamsError = () => results.length > 0 && results.every((r) => r.isError)
   const streamsLoading = () => streams().length === 0 && results.some((r) => r.isLoading)
+
+  // Retry feedback: which query is backing off, and which failed for good.
+  const named = () => [
+    { name: 'Cinemeta', q: byId },
+    { name: 'Cinemeta', q: search },
+    { name: 'Cinemeta', q: details },
+    ...providers().map((x, i) => ({ name: x.label || Stremio.baseUrl(x.url), q: results[i] })),
+  ]
+  const retrying = () => named().find((x) => x.q?.isFetching && x.q.failureCount > 0)
+  // a failed id lookup falls back to search, so only search's own failure counts
+  const failed = () => named().filter((x) => x.q !== byId && x.q?.isError)
+  const retryFailed = () => failed().forEach((x) => x.q.refetch())
 
   /** Template values for a torrent row's actions. */
   const vars = (s: Stremio.ParsedStream): Config.Vars => ({
@@ -134,10 +147,31 @@ export const Torrents = (p: { media: Media }) => {
           <Message>No torrent providers enabled. Add one in settings.</Message>
         </Match>
         <Match when={search.isError || details.isError || streamsError()}>
-          <Message>Couldn't load torrents.</Message>
+          <Message>
+            Couldn't load torrents.
+            <For each={failed()}>
+              {(x) => (
+                <span class="mt-1 block text-subtle">
+                  {x.name}: {Req.describe(x.q.error)}
+                </span>
+              )}
+            </For>
+            <button type="button" onClick={retryFailed} class="mt-2 rounded px-2 py-0.5 text-accent hover:bg-hover">
+              Try again
+            </button>
+          </Message>
         </Match>
         <Match when={byId.isLoading || search.isLoading || details.isLoading || streamsLoading()}>
-          <Message>Searching…</Message>
+          <Message>
+            Searching…
+            <Show when={retrying()}>
+              {(x) => (
+                <span class="mt-1 block text-subtle">
+                  {x().name}: {Req.describe(x().q.failureReason)}, retrying ({x().q.failureCount}/{Req.RETRIES})
+                </span>
+              )}
+            </Show>
+          </Message>
         </Match>
         <Match when={!meta()}>
           <Message>No match found.</Message>
@@ -149,6 +183,22 @@ export const Torrents = (p: { media: Media }) => {
           <Message>No torrents found.</Message>
         </Match>
         <Match when={true}>
+          {/* some providers answered; say which didn't rather than silently showing fewer rows */}
+          <Show when={retrying() ?? failed()[0]}>
+            {(x) => (
+              <div class="flex shrink-0 items-center gap-2 border-b border-line px-3 py-1 text-subtle">
+                <span class="min-w-0 flex-1 truncate">
+                  {x().name}: {Req.describe(x().q.failureReason)}
+                  {x().q.isFetching ? `, retrying (${x().q.failureCount}/${Req.RETRIES})` : ''}
+                </span>
+                <Show when={!x().q.isFetching}>
+                  <button type="button" onClick={retryFailed} class="rounded px-1.5 text-accent hover:bg-hover">
+                    Retry
+                  </button>
+                </Show>
+              </div>
+            )}
+          </Show>
           <ul class="min-h-0 divide-y divide-line overflow-y-auto">
             <For each={visible()}>
               {(s) => (
@@ -235,6 +285,7 @@ const RequestAction = (p: { action: Config.Action; vars: () => Config.Vars }) =>
   const [state, setState] = createSignal<{ status: 'idle' | 'pending' | 'ok' | 'error'; message?: string }>({
     status: 'idle',
   })
+  const r = Fetch.use()
   let timer: ReturnType<typeof setTimeout> | undefined
   onCleanup(() => clearTimeout(timer))
   const settle = (next: ReturnType<typeof state>, ms: number) => {
@@ -247,7 +298,7 @@ const RequestAction = (p: { action: Config.Action; vars: () => Config.Vars }) =>
     if (state().status === 'pending') return
     setState({ status: 'pending' })
     try {
-      await Request.send(Config.buildRequest(p.action, p.vars()))
+      await r.send(Config.buildRequest(p.action, p.vars()))
       settle({ status: 'ok' }, 1500)
     } catch (e) {
       settle({ status: 'error', message: e instanceof Error ? e.message : String(e) }, 4000)

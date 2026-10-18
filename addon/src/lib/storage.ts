@@ -1,4 +1,4 @@
-import type { Persist } from '@rottenbox/ui/context'
+import type * as Persist from '@rottenbox/ui/context/persist'
 
 export type ChromeStorage =
   | chrome.storage.LocalStorageArea

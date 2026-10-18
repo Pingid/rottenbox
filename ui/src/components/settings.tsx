@@ -2,9 +2,9 @@ import { createSignal, For, onCleanup, Show, type JSX } from 'solid-js'
 
 import { CheckIcon, CloseIcon, IconButton, inputClass } from './ui'
 import { Clipboard } from '../lib'
-import { Config, Theme } from '../context'
+import { Backup, Config, Theme } from '../context'
 
-const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+const newId = Config.newId
 
 /** Signal that falls back to `false` a moment after being set. */
 const createFlash = (ms: number) => {
@@ -277,6 +277,100 @@ export const Settings = () => {
           onClick={() => setConfig('actions', (as) => [...as, Config.newAction(newId())])}
         />
       </Section>
+
+      <BackupSection />
     </div>
+  )
+}
+
+/** Export settings as a JSON file / clipboard text, and import one back (replacing providers and actions). */
+const BackupSection = () => {
+  const { config, setConfig } = Config.use()
+  const theme = Theme.use()
+  const [text, setText] = createSignal('')
+  const [status, setStatus] = createSignal<{ ok: boolean; message: string }>()
+  const [copied, flashCopied] = createFlash(1200)
+  let file!: HTMLInputElement
+
+  const exported = () => Backup.stringify(Backup.toManifest(config, theme.mode()))
+
+  const apply = () => {
+    const parsed = Backup.parse(text())
+    if (!parsed.ok) return setStatus({ ok: false, message: parsed.error })
+    const m = parsed.manifest
+    setConfig({ quality: m.quality, providers: m.providers, actions: m.actions })
+    theme.setMode(m.theme)
+    setText('')
+    const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+    setStatus({
+      ok: true,
+      message: `Imported ${count(m.providers.length, 'provider')} and ${count(m.actions.length, 'action')}.`,
+    })
+  }
+
+  const pickFile = async (f: File | undefined) => {
+    if (!f) return
+    setText(await f.text())
+    setStatus(undefined)
+    file.value = '' // so picking the same file again still fires `change`
+  }
+
+  const button = 'rounded px-1.5 py-0.5 text-muted hover:bg-hover hover:text-fg'
+
+  return (
+    <Section
+      title="Backup"
+      description="Save your providers, actions and theme as JSON, to restore later or move to another browser. Request headers are included, so keep the file private if they hold tokens."
+      aside={
+        <div class="flex gap-0.5">
+          <button
+            type="button"
+            class={button}
+            onClick={async () => (await Clipboard.copy(exported())) && flashCopied()}
+          >
+            {copied() ? 'Copied' : 'Copy'}
+          </button>
+          <button type="button" class={button} onClick={() => Backup.download(exported())}>
+            Download
+          </button>
+        </div>
+      }
+    >
+      <textarea
+        aria-label="Settings JSON to import"
+        class={`${inputClass} resize-y font-mono`}
+        rows={3}
+        placeholder="Paste settings JSON, or choose a file…"
+        value={text()}
+        onInput={(e) => (setText(e.currentTarget.value), setStatus(undefined))}
+      />
+      <input
+        ref={file}
+        type="file"
+        accept="application/json,.json"
+        class="hidden"
+        onChange={(e) => pickFile(e.currentTarget.files?.[0])}
+      />
+      <div class="flex items-center gap-1">
+        <button type="button" class={button} onClick={() => file.click()}>
+          Choose file
+        </button>
+        <span
+          class="min-w-0 flex-1 truncate"
+          classList={{ 'text-ok': status()?.ok, 'text-danger': status()?.ok === false }}
+          title={status()?.message}
+        >
+          {status()?.message}
+        </span>
+        <button
+          type="button"
+          disabled={!text().trim()}
+          onClick={apply}
+          class="rounded bg-accent px-2 py-0.5 text-white hover:opacity-90 disabled:opacity-40"
+        >
+          Import
+        </button>
+      </div>
+    </Section>
   )
 }

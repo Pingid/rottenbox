@@ -1,6 +1,9 @@
 name: Main
 
-on: push
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
 
 permissions:
   contents: write
@@ -10,17 +13,125 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          # manifest version falls back to `git describe` on branch builds
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.3
-  
+
       - name: install
-        run: bun install
+        run: bun install --frozen-lockfile
 
       - name: build
-        run: bun run --workspaces --parallel build
+        run: sh ./bin/build.sh
 
-      - name: Restore and Normalize Private Key
+      - name: lint firefox
+        run: bun run --cwd addon lint:firefox
+
+      - name: upload builds
+        uses: actions/upload-artifact@v4
+        with:
+          name: rottenbox-${{ github.sha }}
+          path: addon/dist/
+
+      - name: upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ github.sha }}
+          path: release/
+
+  # Runs the install scripts against the freshly built release/, served locally.
+  install-smoke:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, runner: sh }
+          - { os: macos-latest, runner: sh }
+          - { os: windows-latest, runner: pwsh }
+          - { os: windows-latest, runner: powershell } # Windows PowerShell 5.1
+    name: install (${{ matrix.os }}, ${{ matrix.runner }})
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - uses: actions/download-artifact@v5
+        with:
+          name: release-${{ github.sha }}
+          path: release/
+
+      - name: smoke test
+        shell: bash
+        env:
+          RUNNER: ${{ matrix.runner }}
+          PORT: '8765'
+          ROTTENBOX_NO_OPEN: '1'
+        run: |
+          export ROTTENBOX_RELEASE_URL="http://localhost:$PORT"
+          home="$RUNNER_TEMP/rottenbox"
+          command -v cygpath >/dev/null && home=$(cygpath -m "$home") # C:/… works for bash and PowerShell
+          export ROTTENBOX_HOME="$home"
+
+          python -m http.server "$PORT" --directory release >"$RUNNER_TEMP/http.log" 2>&1 &
+          for i in $(seq 30); do curl -fs "$ROTTENBOX_RELEASE_URL/" >/dev/null && break; [ "$i" -lt 30 ] || { cat "$RUNNER_TEMP/http.log"; exit 1; }; sleep 1; done
+
+          # run_install <browser> [version], output teed to $RUNNER_TEMP/out
+          run_install() {
+            if [ "$RUNNER" = sh ]; then
+              set -- sh bin/install.sh "$1" ${2:+--version "$2"}
+            else
+              set -- "$RUNNER" -NoProfile -ExecutionPolicy Bypass -File bin/install.ps1 -Browser "$1" ${2:+-Version "$2"}
+            fi
+            echo "::group::$*"
+            "$@" 2>&1 | tee "$RUNNER_TEMP/out"
+            echo "::endgroup::"
+          }
+          fail() { echo "::error::$*"; exit 1; }
+          expect_version() {
+            [ -f "$home/chrome/manifest.json" ] || fail "no $home/chrome/manifest.json"
+            got=$(cat "$home/chrome/.version")
+            [ "$got" = "$1" ] || fail ".version is '$got', expected '$1'"
+          }
+
+          run_install chrome v0.0.0-ci
+          expect_version v0.0.0-ci
+          grep -q 'Load unpacked' "$RUNNER_TEMP/out" || fail "first install didn't print setup steps"
+
+          run_install chrome v0.0.0-ci
+          grep -q 'up to date' "$RUNNER_TEMP/out" || fail "second install didn't say 'up to date'"
+
+          run_install chrome v0.0.1-ci
+          expect_version v0.0.1-ci
+          grep -q 'updated to v0.0.1-ci' "$RUNNER_TEMP/out" || fail "update didn't say 'updated to'"
+
+          run_install firefox
+          grep -qF "$ROTTENBOX_RELEASE_URL/rottenbox-firefox.xpi" "$RUNNER_TEMP/out" || fail "firefox didn't print the xpi url"
+
+      - name: server log
+        if: failure()
+        shell: bash
+        run: cat "$RUNNER_TEMP/http.log" || true
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
+      - name: install
+        run: bun install --frozen-lockfile
+
+      - name: restore chrome key
         env:
           CRX_KEY_B64: ${{ secrets.CRX_PRIVATE_KEY }}
         run: |
@@ -29,15 +140,19 @@ jobs:
           openssl rsa -in key.pem -check -noout
 
       - name: collect
-        if: github.ref_type == 'tag'
         env:
           KEY: ./key.pem
-          VERSION: ${{ github.ref_name }}
         run: sh ./bin/build.sh
 
-      - name: Release
+      - name: sign firefox
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+          REPO: ${{ github.repository }}
+        run: sh ./bin/sign-firefox.sh
+
+      - name: release
         uses: softprops/action-gh-release@v3
-        if: github.ref_type == 'tag'
         with:
           files: ./release/*
           generate_release_notes: true
